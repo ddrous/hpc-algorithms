@@ -1,0 +1,7 @@
+bib/*
+build/*
+report/*
+!report/report.tex
+!report/report.bib
+!report/report.pdf
+perf/*

@@ -1,0 +1,19 @@
+image: berenger/spetabaruci
+
+release:
+  script:
+    - cd TP*
+    - mkdir build
+    - cd build
+    - CXX=g++-8 cmake -DCMAKE_BUILD_TYPE=Release -DUSE_TESTING=ON ..
+    - make
+
+debug:
+  script:
+    - cd TP*
+    - mkdir build
+    - cd build
+    - CXX=g++-8 cmake -DCMAKE_BUILD_TYPE=Debug -DUSE_TESTING=ON ..
+    - make
+    - CTEST_OUTPUT_ON_FAILURE=TRUE make test
+

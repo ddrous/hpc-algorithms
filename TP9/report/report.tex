@@ -1,0 +1,325 @@
+\documentclass[a4paper, 10 pt, conference]{ieeeconf}
+\overrideIEEEmargins
+
+% The following packages can be found on http:\\www.ctan.org
+%\usepackage{graphics} % for pdf, bitmapped graphics files
+%\usepackage{epsfig} % for postscript graphics files
+%\usepackage{mathptmx} % assumes new font selection scheme installed
+%\usepackage{times} % assumes new font selection scheme installed
+%\usepackage{amsmath} % assumes amsmath package installed
+%\usepackage{amssymb}  % assumes amsmath package installed
+\usepackage{graphicx}
+\usepackage{textcase}
+\usepackage[font={sf,small},labelfont=sf]{caption}  %% To manage long captions in images
+% \usepackage[font={sf,small},labelfont=sf,tablename=Table]{caption}  %% To manage long captions in images
+\usepackage{subcaption}
+\usepackage{float}
+\graphicspath{ {./img/} }
+\captionsetup{justification=centering}
+\captionsetup[table]{position=bottom}
+%%% TO make table label small: https://tex.stackexchange.com/questions/166814/table-caption-in-uppercase-i-dont-know-why
+
+\usepackage{booktabs} % Required for better horizontal rules in tables
+
+\usepackage{listings} % Required for insertion of code
+
+\usepackage[utf8]{inputenc} 
+\usepackage[T1]{fontenc}
+\usepackage{mathpazo}
+
+\usepackage{titlesec}
+\titleformat{\subsection}[block]{\normalfont\bfseries}{\thesubsection.}{3pt}{}
+\titleformat{\subsubsection}[block]{\normalfont\bfseries\itshape}{\thesubsubsection.}{3pt}{}
+
+\usepackage[backend=bibtex,style=numeric,maxnames=2,natbib=true]{biblatex}
+\addbibresource{report.bib}
+
+% \newcommand{\code}[1]{$\verb|#1|$}
+% \newcommand{\code}[1]{\begin{verbatim} this \end{verbatim}}
+\newcommand{\code}[1]{$#1$}
+\usepackage{multicol}
+
+\newcommand{\tabhead}[1]{{\bfseries#1}}
+
+\usepackage{listings}
+\usepackage{xcolor}
+\lstset{language=C++,
+        basicstyle=\footnotesize\ttfamily,
+        keywordstyle=\color{blue}\ttfamily,
+        stringstyle=\color{red}\ttfamily,
+        commentstyle=\color{green}\ttfamily,
+        tabsize=2,
+        captionpos=b,
+        morecomment=[l][\color{magenta}]{\#}
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\title{\LARGE \bf
+Compilation \& Performance Project Report}
+
+\author{Roussel Desmond Nzoyem} % Student name
+\date{\today} % Due date
+
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+\pagestyle{empty}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{abstract}
+
+The purpose of this study is to optimize a kernel using OpenMP and measure our improvements through $\verb|Perf|$. The kernel itself is a $\verb|C++|$ matrix-matrix product, important in all areas of computational science. In total, five optimization techniques were implemented. These include: memory access improvement, code parallelization, code vectorization, switching to 32 bits floating point numbers, and using $\verb|BLAS|$. The code for each technique was written in the $\verb|VSCode|$ editor, then compiled and run on a Linux operating system using $\verb|CMake|$ and the $\verb|GCC|$ suite. The main device used for tests was the Atlas computing cluster, due to the fact that it can run $\verb|Perf|$ with most performance counters available. It was found that each of the aforementioned optimization techniques is an improvement on the non-optimized code, especially the latter ones. Additionally, a multi-threading benchmark was carried out on the parallelized and vectorized code; it was determined that those two optimizations can become inefficient when too many threads are used. 
+
+
+\end{abstract}
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{\textbf{Materials}}
+A non-optimized code (kernel) was provided to us as a reference for this project. Using that code, we will write a series of optimizations and test them using the $\verb|perf|$ profiling tool. Due to difficulties running this tool locally, most of our tests will be run on the $\verb|Atlas|$ computing cluster. 
+
+%%%%%%%%%%%%%%-------------%%%%%%%%%%%%%%%%%
+\subsection{The non-optimized C++ code}
+The provided code performs a matrix-matrix product $C=AB^T$ ; where $A$, $B$, and $C$ are arrays of size $N^2$. $C$ is initialized at $0$.
+\begin{lstlisting}[language=C++, caption={Non-optimized C++ code}]
+for(long int k = 0 ; k < N ; ++k){
+    for(long int j = 0 ; j < N ; ++j){
+        for(long int i = 0 ; i < N ; ++i)
+            C[i*N+j] += A[i*N+k] * B[j*N+k];
+    }
+}
+\end{lstlisting}
+The resulting binary (called $\verb|matrix|$) has three execution modes:
+\begin{itemize}
+    \item $\verb|-check|$: to check the result.
+    \item $\verb|-no-check|$: to avoid checking the result.
+    \item $\verb|-no-optim|$: to avoid running the optimized code.
+\end{itemize}
+
+%%%%%%%%%%%%%%-------------%%%%%%%%%%%%%%%%%
+\subsection{Atlas}
+$\verb|Atlas|$ is a powerful computing cluster with cutting-edge computing nodes. However, we will only connect to its frontal node and access the 64 cores available, with 512 GB of RAM. Further documentation on $\verb|Atlas|$ can be found at \cite{Atlas}.  
+
+
+%%%%%%%%%%%%%%-------------%%%%%%%%%%%%%%%%%
+\subsection{Perf}
+$\verb|perf|$ is a lightweight Linux profiling tool with performance counters. We are mostly interested in the following indicators:
+
+\begin{itemize}
+    \item the execution time ($\verb|elapsed time|$) in seconds, for a single execution (not an average).
+    \item the number of cache-miss events ($\verb|cache-misses|$) expressed as a percentage over all cache references.
+    \item the number of instructions per cycle ($\verb|insns per cycle|$).
+\end{itemize}
+Our processes will be bound to their cores, meaning that to get all our values of interest for the non-optimized version of the code, we could simply run the command:
+
+\begin{lstlisting}[breaklines]
+    $ OMP_PROC_BIND=TRUE perf stat -B -e cache-references,cache-misses,cycles,instructions matrix -no-optim
+\end{lstlisting}
+In addition, we will use 
+\begin{lstlisting}[breaklines]
+    $ perf record -e cache-misses matrix -no-optim
+\end{lstlisting}
+to record and analyze cache-misses, hence detecting bottlenecks in the code. 
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{\textbf{Results}}
+
+
+%%%%%%%%%%%%%%-------------%%%%%%%%%%%%%%%%%
+\subsection{Memory access improvement}
+Reordering the loops yields the following code (the resulting optimized matrix $C_{optim}$ was carefully initialized at $0$). 
+
+\begin{lstlisting}[language=C++, caption={Memory access optimized code}]
+for(long int i = 0 ; i < N ; ++i){
+    for(long int j = 0 ; j < N ; ++j){
+        for(long int k = 0 ; k < N ; ++k)
+            COptim[i*N+j] += A[i*N+k] * B[j*N+k];
+    }
+}
+\end{lstlisting}
+As a result, we get the table below.
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{l c c}
+        \toprule
+         & \tabhead{Non-optimized} & \tabhead{Optimized} \\
+        \midrule
+        \tabhead{elapsed time} & 43,42 & 1,97 \\
+        \tabhead{insns per cycle} & 0,05 & 0,83 \\
+        \tabhead{cache-misses} & 0,022  \% & 0,013 \%\\
+        \bottomrule\\
+    \end{tabular}
+    \caption{Memory access optimization for $N=1024$}
+\end{table}
+We can see that the execution time and the percentage of cache-misses is greatly decreased, along with the number of instructions per cycle that increases. The next section attempts to add to this optimization by parallelizing the loops.
+
+
+%%%%%%%%%%%%%%-------------%%%%%%%%%%%%%%%%%
+\subsection{Code parallelization}
+In this optimization, we need to add a statement like $\verb|OMP_NUM_THREADS=64|$ to specify the number of parallelization threads to use. Remembering that our matrices are stored as 1-dimensional arrays, we should only focus on one loop. Let's parallelize the loop on $C_{optim}$'s rows (indexed by $i$). The code will look like this:
+\begin{lstlisting}[language=C++, caption={OpenMP parallelization for a single loop}]
+#pragma omp parallel for collapse(1)
+for(long int i = 0 ; i < N ; ++i){
+    for(long int j = 0 ; j < N ; ++j){
+        for(long int k = 0 ; k < N ; ++k)
+            COptim[i*N+j] += A[i*N+k] * B[j*N+k];
+    }
+}
+\end{lstlisting}
+And the resulting measures are presented in the table below.
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{l c c}
+        \toprule
+         & \tabhead{Non-optimized} & \tabhead{Optimized} \\
+        \midrule
+        \tabhead{elapsed time} & 43,42 & 0,36 \\
+        \tabhead{insns per cycle} & 0,05 & 0,18 \\
+        \tabhead{cache-misses} & 0,022  \% & 0,039 \%\\
+        \bottomrule\\
+    \end{tabular}
+    \caption{OpenMP parallelization for a single loop, for $N=1024$}
+\end{table}
+On their own, the results are convincing. When compared to the previous optimization, we notice a poorer cache-miss ratio, and a worse number of instructions per cycle, even though the execution time has been considerably decreased.
+
+
+%%%%%%%%%%%%%%-------------%%%%%%%%%%%%%%%%%
+\subsection{Code vectorization}
+Let's vectorize the inner loop, the one in $k$. Using OpenMP's SIMD program, we replace the arrays $A$ and $B$ by pointers $ptr1$ and $ptr2$ on their respective first elements. We will use the fact that these pointers are $64$-bytes aligned, and set $\verb|simdlen|$ (the preferred number of iterations to be executed concurrently) to $64$. The computation loop looks like the following:
+\begin{lstlisting}[language=C++, caption={OpenMP inner loop vectorization},breaklines]
+#pragma omp parallel for collapse(1)
+for(long int i = 0 ; i < N ; ++i){
+    for(long int j = 0 ; j < N ; ++j){
+        double sum = 0;
+        #pragma omp simd reduction(+: sum) aligned(ptr1, ptr2: 64) safelen(N) simdlen(64)
+        for(long int k = 0 ; k < N ; ++k)
+            sum += *(ptr1+i*N+k) * *(ptr2+j*N+k);
+        COptim[i*N+j] = sum;
+    }
+}
+\end{lstlisting}
+The resulting comparison yields the table below.
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{l c c}
+        \toprule
+         & \tabhead{Non-optimized} & \tabhead{Optimized} \\
+        \midrule
+        \tabhead{elapsed time} & 43,42 & 0,36 \\
+        \tabhead{insns per cycle} & 0,05 & 0,12 \\
+        \tabhead{cache-misses} & 0,022  \% & 0,082 \%\\
+        \bottomrule\\
+    \end{tabular}
+    \caption{OpenMP vectorization, for $N=1024$}
+\end{table}
+This is good, but it doesn't bring any performance improvement when compared to the best optimization so far. On the contrary, the cache-misses and instructions per cycle gets poorer. It seems the code has already been optimally improved. This can be explained by the size limit on the caches. At some point, asking 64 instructions to be executed concurrently requires that most of the values be loaded out of the cache to make room for new ones.
+
+Using $\verb|perf|$'s $\verb|record|$ and $\verb|annotate|$ features, we can confirm the location of the bottlenecks in the images below. 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=8cm]{bottleneckNoOptim.png}
+    \caption{Location of the bottleneck in the non-optimized version. The majority of cache-misses is located in the outer loops in $i$ and $j$.}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=8cm]{bottleneckOptim.png}
+    \caption{Location of the bottleneck in the optimized version. The majority of cache-misses is located in the inner loop in $k$.}
+\end{figure}
+
+
+%%%%%%%%%%%%%%-------------%%%%%%%%%%%%%%%%%
+\subsection{Other improvements}
+
+\subsubsection{Using double vs. float}
+
+In order to easily achieve this comparison, we simply include the instruction $\verb|typedef float decimal;|$, and declare all variable of interest as $\verb|decimal|$. This way, we can easily switch between $\verb|double|$ and $\verb|float|$ for benchmarking. The results are presented in the table below.
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{l c c}
+        \toprule
+         & \tabhead{double} & \tabhead{float} \\
+        \midrule
+        \tabhead{elapsed time} & 0,53 & 0,19 \\
+        \tabhead{insns per cycle} & 0,13 & 0,34 \\
+        \tabhead{cache-misses} & 0,078  \% & 0,110 \%\\
+        \bottomrule\\
+    \end{tabular}
+    \caption{float vs. double comparison, for $N=1024$}
+\end{table}
+As expected, the floats lead to better performance, because of the lesser precision. In fact, in modern architectures, twice as many registers can be used for floats (32 bits) compared to doubles (64 bits). This in turn is effective for parallelization and especially for vectorization. 
+
+
+\vspace*{0.4cm}
+\subsubsection{Using OpenBlas}
+
+BLAS is a common HPC library that we will use to test our implementation. Due to permission issues while using $\verb|OpenBlas|$ on Linux with CMake, we adopted a straightforward installation option $\verb|sudo apt-get install libopenblas-dev|$, then a compilation of the code with  $\verb|g++ tests/matrix.cpp -I src -lblas|$. In the code, we can compute a matrix-matrix (transposed) product using the following instruction :
+\begin{lstlisting}[language=C++, caption={BLAS implementation},breaklines]
+cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, N, N, N, 1.0, A, N, B, N, 0.0, COptim, N);
+\end{lstlisting}
+The table below clearly indicates better optimization, in every indicator, by OpenBlas. This library earns its reputation as one of the best HPC libraries available nowadays.
+
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{c c c}
+        \toprule
+        & \tabhead{With OpenMP} & \tabhead{With OpenBlas} \\
+        \midrule
+        \tabhead{elapsed time} & 0,36 & 0,135 \\
+        \tabhead{insns per cycle} & 0,12 & 1,60 \\
+        \tabhead{cache-misses} & 0,082 & 0,399 \% \\
+        \bottomrule\\
+    \end{tabular}
+    \caption{Our optimization (OpenMP) and OpenBlas comparison for $N=1024$}
+\end{table}
+
+
+\subsubsection{Small, medium and large matrices}
+
+\textit{This final part of the benchmarking (and all the remainder) has not been completed on Atlas. Instead, it has been completed on my personal PC, with its 8 cores.} 
+
+Let's plot the increase in efficiency as the number of threads grows from 1 to 8. As we have seen so far, the execution time is the most coherent indicator of performance. We obtained the table below for a small ($N=256$), a medium ($N=1024$), and a large ($N=4096$) matrix size.
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{c l l l}
+        \toprule
+        \tabhead{Number of threads}& \tabhead{Small} & \tabhead{Medium} & \tabhead{Large} \\
+        \midrule
+        \tabhead{1} & 0.0063 & 0.560 & 41.32 \\
+        \tabhead{2} & 0.0035 & 0.369 & 26.13 \\
+        \tabhead{3} & 0.0025 & 0.270 & 21.61 \\
+        \tabhead{4} & 0.0019 & 0.217 & 19.76 \\
+        \tabhead{5} & 0.0016 & 0.189 & 18.60 \\
+        \tabhead{6} & 0.0014 & 0.177 & 16.53 \\
+        \tabhead{7} & 0.0013 & 0.188 & 18.96 \\
+        \tabhead{8} & 0.0012 & 0.181 & 26.52 \\
+        \bottomrule\\
+    \end{tabular}
+    \caption{Improvement comparison}
+\end{table}
+For all the plots to be visible in the same figure, we will have to use a "log" scale.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=8cm]{Compare.png}
+    \caption{Improvement comparison for small, medium and large matrix size (in log scale).}
+\end{figure}
+\noindent We can see from the plots that the execution time tends to decrease as the number of threads increases. However, there seems to be no additional benefit with more than 6 threads, in fact, the large matrix size shows that we lose performance. As we have seen in the previous sections, this is probably due to large amounts of cache-misses. 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{\textbf{Conclusion}}
+
+Optimizing a kernel can be as simple as reordering its nested loops to using HPC libraries such as OpenMP or BLAS for parallelization and vectorization. These findings suggest that whenever possible while performing matrix-matrix computations, BLAS should be the default choice. Moreover, when a multi-threading approach is used, it is important to know the kernel and the device's specifications, in order to properly calibrate the optimization and avoid loosing performance. 
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\printbibliography
+%\bibliographystyle{unsrt} % plain
+%\bibliography{report}%
+
+\end{document}

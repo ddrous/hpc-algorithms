@@ -1,0 +1,10 @@
+{
+    "tasks": [
+        {
+            "label": "BUILD AND RUN",
+            "type": "shell",
+            "command": "make registerAllocation && ./build/registerAllocation",
+          }
+    ],
+    "version": "2.0.0"
+}
